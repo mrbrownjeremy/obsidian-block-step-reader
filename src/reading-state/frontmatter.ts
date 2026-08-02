@@ -107,6 +107,7 @@ export function buildPositionPatch(
 	scrollRatio: number,
 	totalLines: number,
 	totalWords: number,
+	scrollTop = 0,
 ): Partial<UserReadingState> {
 	const progress = computeProgressFromLine(lineStart, totalLines);
 	const wordsRead = Math.round(totalWords * progress);
@@ -114,6 +115,7 @@ export function buildPositionPatch(
 	return {
 		lineStart,
 		scrollRatio,
+		scrollTop,
 		progress,
 		totalWords,
 		wordsRead,
@@ -137,6 +139,7 @@ function normalizeUserState(raw: Record<string, unknown>): UserReadingState {
 			raw.scrollRatio,
 			DEFAULT_USER_READING_STATE.scrollRatio,
 		),
+		scrollTop: toNumber(raw.scrollTop, DEFAULT_USER_READING_STATE.scrollTop),
 		updatedAt: toNumber(raw.updatedAt, DEFAULT_USER_READING_STATE.updatedAt),
 		read: Boolean(raw.read),
 		finished:

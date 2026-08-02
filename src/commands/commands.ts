@@ -55,11 +55,7 @@ export const saveReadingPosition: RveCommand = (plugin: ReadingViewEnhancer) => 
 	checkCallback: (checking: boolean): boolean => {
 		const activeView = getActiveView(plugin);
 		if (checking) {
-			return (
-				isReadingView(activeView) &&
-				!isNotEnabled(plugin) &&
-				!isMobileAndDisabled(plugin)
-			);
+			return Boolean(activeView?.file) && !isNotEnabled(plugin);
 		}
 		void plugin.readingPosition.saveNow();
 		return true;
@@ -72,11 +68,7 @@ export const restoreReadingPosition: RveCommand = (plugin: ReadingViewEnhancer) 
 	checkCallback: (checking: boolean): boolean => {
 		const activeView = getActiveView(plugin);
 		if (checking) {
-			return (
-				isReadingView(activeView) &&
-				!isNotEnabled(plugin) &&
-				!isMobileAndDisabled(plugin)
-			);
+			return Boolean(activeView?.file) && !isNotEnabled(plugin);
 		}
 		void plugin.readingPosition.restoreNow(plugin.blockSelector.selectionHandler);
 		return true;
@@ -97,11 +89,7 @@ export const markNoteAsRead: RveCommand = (plugin: ReadingViewEnhancer) => ({
 	checkCallback: (checking: boolean): boolean => {
 		const activeView = getActiveView(plugin);
 		if (checking) {
-			return (
-				isReadingView(activeView) &&
-				!isNotEnabled(plugin) &&
-				!isMobileAndDisabled(plugin)
-			);
+			return Boolean(activeView?.file) && !isNotEnabled(plugin);
 		}
 		void plugin.readingPosition.markCurrentAsRead();
 		return true;
@@ -114,11 +102,7 @@ export const markNoteAsUnread: RveCommand = (plugin: ReadingViewEnhancer) => ({
 	checkCallback: (checking: boolean): boolean => {
 		const activeView = getActiveView(plugin);
 		if (checking) {
-			return (
-				isReadingView(activeView) &&
-				!isNotEnabled(plugin) &&
-				!isMobileAndDisabled(plugin)
-			);
+			return Boolean(activeView?.file) && !isNotEnabled(plugin);
 		}
 		void plugin.readingPosition.markCurrentAsUnread();
 		return true;

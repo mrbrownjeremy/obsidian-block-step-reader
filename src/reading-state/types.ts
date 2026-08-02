@@ -5,6 +5,7 @@ export interface UserReadingState {
 	progress: number;
 	lineStart: number;
 	scrollRatio: number;
+	scrollTop: number;
 	updatedAt: number;
 	read: boolean;
 	finished: string | null;
@@ -25,6 +26,7 @@ export const DEFAULT_USER_READING_STATE: UserReadingState = {
 	progress: 0,
 	lineStart: 0,
 	scrollRatio: 0,
+	scrollTop: 0,
 	updatedAt: 0,
 	read: false,
 	finished: null,

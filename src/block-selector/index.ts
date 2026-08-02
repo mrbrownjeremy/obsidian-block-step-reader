@@ -1,18 +1,13 @@
-import { Platform, type MarkdownPostProcessorContext } from "obsidian";
+import { Platform, TFile, type MarkdownPostProcessorContext } from "obsidian";
 
 import ReadingViewEnhancer from "src/main";
 import SelectionHandler from "./selection-handler";
 import { BLOCKS, BLOCK_ATTR, BLOCK_SELECTOR, FRONTMATTER } from "../constants";
-import {
-	getActiveView,
-	getReadingViewContainer,
-	isReadingView,
-} from "src/utils";
+import { getActiveView } from "src/utils";
 
 export default class BlockSelector {
 	plugin: ReadingViewEnhancer;
 	selectionHandler: SelectionHandler;
-	private focusTimer: number | null = null;
 
 	private readonly blockifyProcessor = (
 		element: HTMLElement,
@@ -22,16 +17,28 @@ export default class BlockSelector {
 	};
 
 	private readonly onActiveLeafChange = (): void => {
-		this.selectionHandler.deselect();
-		this.plugin.readingPosition.resetReadingSession();
-		this.autoSelectTopBlock();
+		const view = getActiveView(this.plugin);
+		const path = view?.file?.path ?? null;
+		const pending = this.plugin.readingPosition.getPendingRestorePath();
+
+		if (pending && path && pending !== path) {
+			this.plugin.readingPosition.clearRestorePending();
+			this.selectionHandler.deselect();
+			this.plugin.readingPosition.resetReadingSession();
+		} else if (!pending) {
+			this.selectionHandler.deselect();
+			this.plugin.readingPosition.resetReadingSession();
+		}
+
+		if (path && this.plugin.readingPosition.hasSavedPosition(path)) {
+			this.plugin.readingPosition.scheduleRestore(path);
+		}
 	};
 
-	private readonly onLayoutChange = (): void => {
-		if (this.plugin.readingPosition.hasActiveReadingSelection()) {
-			return;
-		}
-		this.autoSelectTopBlock();
+	private readonly onFileOpen = (file: TFile | null): void => {
+		if (!file) return;
+		if (!this.plugin.readingPosition.hasSavedPosition(file.path)) return;
+		this.plugin.readingPosition.scheduleRestore(file.path);
 	};
 
 	constructor(plugin: ReadingViewEnhancer) {
@@ -42,45 +49,24 @@ export default class BlockSelector {
 	activate(): void {
 		this.plugin.registerMarkdownPostProcessor(this.blockifyProcessor);
 		this.plugin.registerEvent(
-			this.plugin.app.workspace.on("layout-change", this.onLayoutChange),
-		);
-		this.plugin.registerEvent(
 			this.plugin.app.workspace.on(
 				"active-leaf-change",
 				this.onActiveLeafChange,
 			),
 		);
+		this.plugin.registerEvent(
+			this.plugin.app.workspace.on("file-open", this.onFileOpen),
+		);
 	}
 
 	autoSelectTopBlock(): void {
 		const view = getActiveView(this.plugin);
-		if (!isReadingView(view)) return;
+		const path = view?.file?.path;
+		if (path) this.plugin.readingPosition.scheduleRestore(path);
+	}
 
-		const containerEl = getReadingViewContainer(view);
-		if (!containerEl) return;
-
-		if (this.focusTimer) window.clearTimeout(this.focusTimer);
-
-		this.focusTimer = window.setTimeout(() => {
-			const currentView = getActiveView(this.plugin);
-			if (!isReadingView(currentView)) return;
-
-			const container = getReadingViewContainer(currentView);
-			if (!container) return;
-
-			if (
-				this.plugin.readingPosition.tryRestore(
-					container,
-					this.selectionHandler,
-				)
-			) {
-				return;
-			}
-
-			if (this.plugin.settings.autoSelectTopBlock) {
-				this.selectTopBlockInTheView(container);
-			}
-		}, this.plugin.settings.readingPositionRestoreDelayMs);
+	requestRestoreForFile(filePath: string): void {
+		this.plugin.readingPosition.scheduleRestore(filePath);
 	}
 
 	selectTopBlockInTheView(viewContainer: HTMLElement): void {
@@ -110,6 +96,10 @@ export default class BlockSelector {
 		}
 
 		this.elementsToBlocks(element, context);
+
+		if (this.plugin.readingPosition.isRestorePendingForPath(context.sourcePath)) {
+			this.plugin.readingPosition.nudgeRestoreIfPending(context.sourcePath);
+		}
 	}
 
 	private getPostProcessorContainer(element: HTMLElement): HTMLElement | null {
@@ -140,7 +130,10 @@ export default class BlockSelector {
 			"touchend",
 			this.selectionHandler.onMouseTouchEnd,
 		);
-		container.addEventListener("focusout", this.selectionHandler.onDeselect);
+		container.addEventListener(
+			"focusout",
+			this.selectionHandler.onContainerFocusOut,
+		);
 		container.addEventListener("keydown", this.selectionHandler.onKeyDown);
 	}
 
@@ -154,7 +147,7 @@ export default class BlockSelector {
 			if (el.hasClass(FRONTMATTER)) return;
 			el.setAttribute(BLOCK_ATTR, "true");
 			el.setAttribute("tabindex", "-1");
-			if (section?.lineStart && section?.lineEnd) {
+			if (section?.lineStart != null && section?.lineEnd != null) {
 				el.setAttribute("data-rve-line-start", section.lineStart.toString());
 				el.setAttribute("data-rve-line-end", section.lineEnd.toString());
 			}

@@ -42,7 +42,15 @@ export default class SelectionHandler {
 		this.handleMouseTouchEnd(e);
 	};
 
-	readonly onDeselect = (): void => {
+	readonly onContainerFocusOut = (e: FocusEvent): void => {
+		if (this.plugin.readingPosition.shouldSuppressDeselect()) return;
+
+		const container = e.currentTarget;
+		if (!(container instanceof HTMLElement)) return;
+
+		const next = e.relatedTarget;
+		if (next instanceof Node && container.contains(next)) return;
+
 		this.deselect();
 	};
 
@@ -59,12 +67,16 @@ export default class SelectionHandler {
 	 *
 	 * @param block {HTMLElement} Block element
 	 */
-	select(block: HTMLElement, options?: { center?: boolean }) {
+	select(block: HTMLElement, options?: { center?: boolean; preventScroll?: boolean }) {
 		if (this.selectedBlock && this.selectedBlock !== block) {
 			this.selectedBlock.removeClass(SELECTED_BLOCK);
 		}
 
-		block.focus();
+		if (options?.preventScroll) {
+			block.focus({ preventScroll: true });
+		} else {
+			block.focus();
+		}
 		block.addClass(SELECTED_BLOCK);
 		this.selectedBlock = block;
 

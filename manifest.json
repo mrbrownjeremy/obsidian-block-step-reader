@@ -1,7 +1,7 @@
 {
 	"id": "block-step-reader",
 	"name": "Block Step Reader",
-	"version": "0.5.8",
+	"version": "0.5.9",
 	"minAppVersion": "1.8.0",
 	"description": "Reader-like step reading: block navigation, reading library, per-user progress in frontmatter, and multi-language UI.",
 	"author": "gorf",

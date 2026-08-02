@@ -4,6 +4,7 @@ import ReadingViewEnhancer from "src/main";
 import { READING_LIBRARY_VIEW_TYPE } from "src/constants";
 import { queryLibrary } from "./service";
 import { setProgressWidth } from "src/styles";
+import { findMarkdownLeafForLibraryOpen, waitMs } from "src/utils";
 import type { LibraryFilter, LibraryQuery, LibrarySort } from "./types";
 
 export default class ReadingLibraryView extends ItemView {
@@ -187,7 +188,8 @@ export default class ReadingLibraryView extends ItemView {
 			const subtitle = item.createDiv({ cls: "bsr-library-item-subtitle" });
 			subtitle.setText(this.entrySubtitle(entry));
 
-			item.addEventListener("click", () => {
+			item.addEventListener("click", (event) => {
+				event.preventDefault();
 				void this.openEntry(entry.filePath);
 			});
 		}
@@ -212,13 +214,22 @@ export default class ReadingLibraryView extends ItemView {
 		const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 		if (!(file instanceof TFile)) return;
 
-		const leaf = this.plugin.app.workspace.getLeaf(false);
-		await leaf.openFile(file, { active: true });
+		const { workspace } = this.plugin.app;
+		const targetLeaf = findMarkdownLeafForLibraryOpen(this.plugin);
 
-		const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-		if (view && view.getState().mode !== "preview") {
-			await view.setState({ ...view.getState(), mode: "preview" }, { history: true });
+		await targetLeaf.openFile(file, { active: true });
+		workspace.setActiveLeaf(targetLeaf, { focus: true });
+
+		const view = targetLeaf.view;
+		if (view instanceof MarkdownView && view.getState().mode !== "preview") {
+			await view.setState(
+				{ ...view.getState(), mode: "preview" },
+				{ history: false },
+			);
 		}
+
+		await waitMs(50);
+		this.plugin.blockSelector.requestRestoreForFile(file.path);
 	}
 
 	private filterLabel(filter: LibraryFilter): string {

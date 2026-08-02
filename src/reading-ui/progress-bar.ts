@@ -2,7 +2,7 @@ import { t, formatRemainingTime } from "src/i18n";
 import ReadingViewEnhancer from "src/main";
 import { formatProgressPercent, type ReadingStats } from "src/reading-state";
 import { setProgressWidth } from "src/styles";
-import { getActiveView, getReadingViewContainer, isReadingView } from "src/utils";
+import { getActiveView, getProgressBarContainer } from "src/utils";
 
 const PROGRESS_BAR_CLASS = "bsr-progress-bar";
 
@@ -11,7 +11,7 @@ export default class ReadingProgressBar {
 	private barEl: HTMLElement | null = null;
 	private fillEl: HTMLElement | null = null;
 	private labelEl: HTMLElement | null = null;
-	private boundContainer: HTMLElement | null = null;
+	private boundHost: HTMLElement | null = null;
 
 	constructor(plugin: ReadingViewEnhancer) {
 		this.plugin = plugin;
@@ -80,24 +80,24 @@ export default class ReadingProgressBar {
 
 	private attachToActiveView() {
 		const view = getActiveView(this.plugin);
-		if (!isReadingView(view)) {
+		const container = getProgressBarContainer(view);
+		if (!container) {
 			this.detach();
 			return;
 		}
 
-		const container = getReadingViewContainer(view);
-		if (!container || container === this.boundContainer) return;
+		if (container === this.boundHost) return;
 
 		this.detach();
-		this.boundContainer = container;
+		this.boundHost = container;
 		this.ensureBar();
 	}
 
 	private ensureBar() {
-		if (!this.boundContainer) return;
-		if (this.barEl?.parentElement === this.boundContainer) return;
+		if (!this.boundHost) return;
+		if (this.barEl?.parentElement === this.boundHost) return;
 
-		this.barEl = this.boundContainer.createDiv({ cls: PROGRESS_BAR_CLASS });
+		this.barEl = this.boundHost.createDiv({ cls: PROGRESS_BAR_CLASS });
 		const track = this.barEl.createDiv({ cls: "bsr-progress-track" });
 		this.fillEl = track.createDiv({ cls: "bsr-progress-fill" });
 		this.labelEl = this.barEl.createDiv({ cls: "bsr-progress-label" });
@@ -108,6 +108,6 @@ export default class ReadingProgressBar {
 		this.barEl = null;
 		this.fillEl = null;
 		this.labelEl = null;
-		this.boundContainer = null;
+		this.boundHost = null;
 	}
 }

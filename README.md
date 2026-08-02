@@ -4,22 +4,22 @@
 
 > Fork and continuation of [Galacsh/obsidian-reading-view-enhancer](https://github.com/Galacsh/obsidian-reading-view-enhancer) (upstream unavailable). Original block navigation by Galacsh (MIT). Additional maintenance and reading-position features by [gorf](https://github.com/gorf).
 
-Block Step Reader improves reading in Obsidian's **reading view**, with a focus on Reader-like step reading:
+Block Step Reader improves reading in Obsidian, with a focus on Reader-like step reading:
 
 - Keyboard block navigation (`J` / `K` or arrow keys)
 - Highlight the current block
 - Auto-center the current block when moving with the keyboard
-- Reading progress bar and remaining-time estimate
+- Reading progress bar and remaining-time estimate in **reading view and editing view**
 - **Reading library** sidebar with filters and sorting
 - Mark notes as read / unread
-- Remember and restore reading position **per user in note frontmatter** (shared-vault friendly)
+- Remember and restore reading position **per user in note frontmatter** (shared-vault friendly; works in reading and editing views)
 - **Multi-language UI**: English, 简体中文, 繁體中文
 
 ## Quick start
 
 1. Install `main.js` and `manifest.json` into `.obsidian/plugins/block-step-reader/`
 2. Enable **Block Step Reader** in community plugins
-3. Open a note in **reading view**
+3. Open a note in **reading view** or **editing view**
 4. Turn on **Enable Block Selector** in plugin settings
 5. Set your **User ID** if the vault is shared with others
 6. Click the **library** ribbon icon or run **Open reading library**

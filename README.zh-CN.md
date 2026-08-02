@@ -2,7 +2,7 @@
 
 > 中文文档 · [English README](README.md)
 
-**渐读**是 Obsidian 的一款阅读增强插件，让你在**阅读模式**里像 Readwise Reader 一样，一段一段地读长文，而不是对着满屏文字发呆。
+**渐读**是 Obsidian 的一款阅读增强插件，让你像 Readwise Reader 一样，一段一段地读长文，而不是对着满屏文字发呆。
 
 Fork 自 [Galacsh/obsidian-reading-view-enhancer](https://github.com/Galacsh/obsidian-reading-view-enhancer)（上游已不可用）。段落导航功能原作者 Galacsh（MIT），阅读进度、阅读库等后续维护由 [gorf](https://github.com/gorf) 完成。
 
@@ -15,10 +15,10 @@ Fork 自 [Galacsh/obsidian-reading-view-enhancer](https://github.com/Galacsh/obs
 | 逐段阅读 | 用 `J` / `K` 或方向键，一次只聚焦一个段落（block） |
 | 高亮当前段 | 当前段落自动高亮，读到哪里一目了然 |
 | 自动居中 | 切换段落时，当前段滚到屏幕中央（可关） |
-| 阅读进度条 | 显示百分比、剩余时间、已读/未读字数 |
+| 阅读进度条 | 在阅读模式和编辑模式里显示百分比、剩余时间、已读/未读字数 |
 | 阅读库 | 侧边栏管理待读、在读、未读、已读笔记 |
 | 已读/未读标记 | 命令或读至文末自动标记 |
-| 记住阅读位置 | 进度存在笔记 frontmatter，换设备也能续读 |
+| 记住阅读位置 | 进度存在笔记 frontmatter，阅读/编辑模式打开都会续读 |
 | 多人共用库 | 每人设一个 User ID，同一条笔记各自独立进度 |
 | 多语言界面 | 简体中文、繁体中文、English |
 
@@ -28,7 +28,7 @@ Fork 自 [Galacsh/obsidian-reading-view-enhancer](https://github.com/Galacsh/obs
 
 1. 安装插件（见下方「安装方式」）
 2. 打开 Obsidian → **设置 → 社区插件**，启用 **渐读**（或 Block Step Reader）
-3. 打开任意笔记，切换到**阅读模式**
+3. 打开任意笔记，切换到**阅读模式**或**编辑模式**
 4. 进入插件设置，打开 **Enable Block Selector（启用段落选择器）**
 5. 若库是多人共用的，在设置里填写你的 **User ID**
 6. 点击左侧功能区 **图书馆** 图标，或运行命令 **打开阅读库**
