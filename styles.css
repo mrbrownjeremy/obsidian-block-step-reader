@@ -60,15 +60,21 @@ body .workspace-leaf.mod-active .view-content.bsr-hide-view {
 	visibility: hidden;
 }
 
+.view-content.bsr-has-progress-bar {
+	position: relative;
+}
+
 .bsr-progress-bar {
-	position: sticky;
+	position: absolute;
+	left: 0;
+	right: 0;
 	bottom: 0;
 	z-index: 10;
-	margin-top: 1rem;
 	padding: 0.5rem 0.75rem 0.75rem;
 	border-top: 1px solid var(--background-modifier-border);
 	background: color-mix(in srgb, var(--background-primary) 92%, transparent);
 	backdrop-filter: blur(6px);
+	pointer-events: none;
 }
 
 .bsr-progress-bar-hidden {

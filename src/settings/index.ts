@@ -1,9 +1,10 @@
 import { PluginSettingTab } from "obsidian";
 import ReadingViewEnhancer from "../main";
-import BlockSelectorSettings from "./block";
-import KeysSettings from "./keys";
-import MiscellaneousSettings from "./miscellaneous";
-import SupportSettings from "./support";
+import {
+	buildSettingDefinitions,
+	renderSettingsTab,
+	type SettingDefinitionItem,
+} from "./definitions";
 import type { LocaleSetting } from "../i18n";
 import type { LibraryFilter, LibrarySort } from "../reading-library/types";
 
@@ -58,7 +59,7 @@ export const DEFAULT_SETTINGS: RveSettings = {
 	deselectKeys: "Escape",
 	rememberReadingPosition: true,
 	showRestoreNotice: false,
-	readingPositionSaveDelayMs: 500,
+	readingPositionSaveDelayMs: 2000,
 	readingPositionRestoreDelayMs: 300,
 	userId: "default",
 	showReadingProgressBar: true,
@@ -90,24 +91,14 @@ export class RveSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return buildSettingDefinitions(this.plugin);
+	}
+
 	/**
 	 * Displays settings tab.
 	 */
 	display() {
-		const { containerEl } = this;
-
-		// Clear all first
-		containerEl.empty();
-
-		// Add block selector settings
-		new BlockSelectorSettings(containerEl, this.plugin);
-
-		// Add miscellaneous settings
-		new MiscellaneousSettings(containerEl, this.plugin);
-
-		// Add keys settings
-		new KeysSettings(containerEl, this.plugin);
-
-		new SupportSettings(containerEl, this.plugin);
+		renderSettingsTab(this.containerEl, this.plugin);
 	}
 }

@@ -86,7 +86,7 @@ const en: Translations = {
 	"settings.showRestoreNoticeDesc": "Display a notice when a saved reading position is restored.",
 	"settings.saveDelay": "Save delay (ms)",
 	"settings.saveDelayDesc":
-		"How long to wait after navigating or scrolling before saving the position.",
+		"How long to wait after navigating or scrolling before caching the position in memory. Frontmatter is written only when you leave the note, so the page does not jump to the top while reading.",
 	"settings.restoreDelay": "Restore delay (ms)",
 	"settings.restoreDelayDesc":
 		"Wait briefly after opening a note so blocks are ready before restoring position.",

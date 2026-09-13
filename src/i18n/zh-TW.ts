@@ -83,7 +83,7 @@ const zhTW: Translations = {
 	"settings.showRestoreNotice": "顯示恢復提示",
 	"settings.showRestoreNoticeDesc": "恢復閱讀位置時顯示通知。",
 	"settings.saveDelay": "儲存延遲（毫秒）",
-	"settings.saveDelayDesc": "停止捲動或切換段落後，等待多久再儲存位置。",
+	"settings.saveDelayDesc": "停止捲動或切換段落後，等待多久把進度記入記憶體。寫入筆記 frontmatter 只在你離開該筆記時進行，避免閱讀中頁面被刷回開頭。",
 	"settings.restoreDelay": "恢復延遲（毫秒）",
 	"settings.restoreDelayDesc": "開啟筆記後稍等片刻，待段落渲染完成再恢復位置。",
 	"settings.libraryDefaultFilter": "閱讀庫預設篩選",

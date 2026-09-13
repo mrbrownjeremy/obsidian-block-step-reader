@@ -8,6 +8,7 @@ import { getActiveView } from "src/utils";
 export default class BlockSelector {
 	plugin: ReadingViewEnhancer;
 	selectionHandler: SelectionHandler;
+	private lastOpenedPath: string | null = null;
 
 	private readonly blockifyProcessor = (
 		element: HTMLElement,
@@ -20,25 +21,50 @@ export default class BlockSelector {
 		const view = getActiveView(this.plugin);
 		const path = view?.file?.path ?? null;
 		const pending = this.plugin.readingPosition.getPendingRestorePath();
+		const sessionPath = this.plugin.readingPosition.getSessionFilePath();
+		const switchedFile = Boolean(path && path !== this.lastOpenedPath);
 
 		if (pending && path && pending !== path) {
 			this.plugin.readingPosition.clearRestorePending();
 			this.selectionHandler.deselect();
 			this.plugin.readingPosition.resetReadingSession();
-		} else if (!pending) {
+		} else if (!pending && switchedFile) {
+			// Only reset when actually opening a different note.
+			// Focus flickers (sidebar, command palette) must NOT re-restore.
 			this.selectionHandler.deselect();
 			this.plugin.readingPosition.resetReadingSession();
 		}
 
-		if (path && this.plugin.readingPosition.hasSavedPosition(path)) {
+		if (path) {
+			this.lastOpenedPath = path;
+		}
+
+		// Restore only when the note actually changed (or first open).
+		if (
+			switchedFile &&
+			path &&
+			this.plugin.readingPosition.hasSavedPosition(path) &&
+			sessionPath !== path
+		) {
+			this.plugin.readingPosition.clearUserInteraction(path);
 			this.plugin.readingPosition.scheduleRestore(path);
 		}
 	};
 
 	private readonly onFileOpen = (file: TFile | null): void => {
 		if (!file) return;
-		if (!this.plugin.readingPosition.hasSavedPosition(file.path)) return;
-		this.plugin.readingPosition.scheduleRestore(file.path);
+		const path = file.path;
+		const switchedFile = path !== this.lastOpenedPath;
+		this.lastOpenedPath = path;
+
+		if (!switchedFile) return;
+		if (!this.plugin.readingPosition.hasSavedPosition(path)) return;
+
+		// Fresh note open — start a restore once.
+		if (this.plugin.readingPosition.getSessionFilePath() !== path) {
+			this.plugin.readingPosition.clearUserInteraction(path);
+			this.plugin.readingPosition.scheduleRestore(path);
+		}
 	};
 
 	constructor(plugin: ReadingViewEnhancer) {
@@ -66,6 +92,9 @@ export default class BlockSelector {
 	}
 
 	requestRestoreForFile(filePath: string): void {
+		this.lastOpenedPath = null; // force treat as new open from library
+		this.plugin.readingPosition.resetReadingSession();
+		this.plugin.readingPosition.clearUserInteraction(filePath);
 		this.plugin.readingPosition.scheduleRestore(filePath);
 	}
 

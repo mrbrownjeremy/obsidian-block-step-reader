@@ -83,7 +83,7 @@ const zhCN: Translations = {
 	"settings.showRestoreNotice": "显示恢复提示",
 	"settings.showRestoreNoticeDesc": "恢复阅读位置时显示通知。",
 	"settings.saveDelay": "保存延迟（毫秒）",
-	"settings.saveDelayDesc": "停止滚动或切换段落后，等待多久再保存位置。",
+	"settings.saveDelayDesc": "停止滚动或切换段落后，等待多久把进度记入内存。写入笔记 frontmatter 只在你离开该笔记时进行，避免阅读中页面被刷回开头。",
 	"settings.restoreDelay": "恢复延迟（毫秒）",
 	"settings.restoreDelayDesc": "打开笔记后稍等片刻，待段落渲染完成再恢复位置。",
 	"settings.libraryDefaultFilter": "阅读库默认筛选",

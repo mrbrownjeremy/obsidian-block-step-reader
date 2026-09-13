@@ -166,3 +166,17 @@ const isMobileAndDisabled = (plugin: ReadingViewEnhancer) => {
 		plugin.settings.disableBlockSelectorOnMobile
 	);
 };
+
+export const COMMAND_FACTORIES: RveCommand[] = [
+	rerenderAllReadingViews,
+	selectTopBlockInTheView,
+	saveReadingPosition,
+	restoreReadingPosition,
+	clearReadingPositions,
+	markNoteAsRead,
+	markNoteAsUnread,
+	toggleBlockHighlight,
+	openReadingLibrary,
+	focusReadingLibrary,
+	syncReadTags,
+];

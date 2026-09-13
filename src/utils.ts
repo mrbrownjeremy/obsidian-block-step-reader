@@ -34,9 +34,12 @@ export function isEditingView(activeView: MarkdownView | null) {
 
 export function getProgressBarContainer(activeView: MarkdownView | null) {
 	if (activeView == null) return null;
-	return isReadingView(activeView)
-		? getReadingViewContainer(activeView)
-		: getSourceViewContainer(activeView);
+	// Attach outside the scrollable preview/source so sticky layout cannot
+	// reset scroll when the bar updates or images load.
+	const viewContent = activeView.containerEl.querySelector(".view-content");
+	return viewContent?.instanceOf(HTMLElement)
+		? viewContent
+		: activeView.containerEl;
 }
 
 export function getScrollContainer(activeView: MarkdownView | null) {
@@ -93,41 +96,51 @@ export function resolveSourceScrollTop(
 	view: MarkdownView,
 	state: { scrollTop: number; scrollRatio: number },
 ): number {
+	// Prefer ratio while layout is still settling (same as preview).
+	if (state.scrollRatio > 0.001) {
+		const scroller = getSourceViewScroller(view);
+		if (scroller) {
+			const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+			if (maxScroll > 0) return state.scrollRatio * maxScroll;
+		}
+	}
+
 	if (state.scrollTop > 0) return state.scrollTop;
-	if (state.scrollRatio <= 0.001) return 0;
-
-	const scroller = getSourceViewScroller(view);
-	if (!scroller) return 0;
-
-	const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-	return state.scrollRatio * maxScroll;
+	return 0;
 }
 
 export function resolvePreviewScrollTop(
 	view: MarkdownView,
 	state: { scrollTop: number; scrollRatio: number },
 ): number {
+	// Prefer ratio: absolute scrollTop is wrong while images/lazy blocks still loading.
+	if (state.scrollRatio > 0.001) {
+		const container = getReadingViewContainer(view);
+		if (container) {
+			const scrollable =
+				container.scrollHeight > container.clientHeight
+					? container
+					: (() => {
+							let node: HTMLElement | null = container.parentElement;
+							while (node) {
+								if (node.scrollHeight > node.clientHeight) return node;
+								node = node.parentElement;
+							}
+							return null;
+					  })();
+
+			if (scrollable) {
+				const maxScroll = Math.max(
+					0,
+					scrollable.scrollHeight - scrollable.clientHeight,
+				);
+				if (maxScroll > 0) return state.scrollRatio * maxScroll;
+			}
+		}
+	}
+
 	if (state.scrollTop > 0) return state.scrollTop;
-	if (state.scrollRatio <= 0.001) return 0;
-
-	const container = getReadingViewContainer(view);
-	if (!container) return 0;
-
-	const scrollable =
-		container.scrollHeight > container.clientHeight
-			? container
-			: (() => {
-					let node: HTMLElement | null = container.parentElement;
-					while (node) {
-						if (node.scrollHeight > node.clientHeight) return node;
-						node = node.parentElement;
-					}
-					return null;
-			  })();
-
-	if (!scrollable) return 0;
-	const maxScroll = Math.max(0, scrollable.scrollHeight - scrollable.clientHeight);
-	return state.scrollRatio * maxScroll;
+	return 0;
 }
 
 export async function waitMs(ms: number): Promise<void> {

@@ -24,6 +24,7 @@ import {
 	getReadingViewContainer,
 	getScrollContainer,
 	getSourceViewScroller,
+	isEditingView,
 	isReadingView,
 	resolvePreviewScrollTop,
 	resolveSourceScrollTop,
@@ -38,6 +39,7 @@ export default class ReadingPositionManager {
 	private saveGeneration = 0;
 	private suppressSaveUntil = 0;
 	private scrollListener: ((event: Event) => void) | null = null;
+	private editorKeyListener: ((event: KeyboardEvent) => void) | null = null;
 	private boundContainer: HTMLElement | null = null;
 	private progressBar: ReadingProgressBar;
 	private statsCache = new Map<string, ReadingStats>();
@@ -52,7 +54,29 @@ export default class ReadingPositionManager {
 	private suppressDeselectUntil = 0;
 	/** Avoid re-restoring the same file+mode on noisy layout-change events. */
 	private lastRestoredModeKey: string | null = null;
-	private static readonly MAX_RESTORE_ATTEMPTS = 8;
+	/** After restore, briefly refuse jump-to-top overwrites. No scroll fighting. */
+	private settle: {
+		path: string;
+		lineStart: number;
+		scrollRatio: number;
+		progress: number;
+		mode: "preview" | "source";
+	} | null = null;
+	private settleUntil = 0;
+	private floorProgress = 0;
+	private floorUntil = 0;
+	/** Live progress kept in memory so we don't rewrite the note while reading. */
+	private memoryStates = new Map<string, UserReadingState>();
+	private lastFrontmatterFingerprint = new Map<string, string>();
+	private pluginDataSaveTimer: number | null = null;
+	private pendingFmPath: string | null = null;
+	/** Highest progress seen this visit — used to ignore jump-to-top glitches. */
+	private progressHighWater = new Map<string, number>();
+	/** User moved cursor / scrolled in edit mode — cancel auto-restore for this note. */
+	private userInteractedPaths = new Set<string>();
+	private static readonly MAX_RESTORE_ATTEMPTS = 16;
+	/** Accept fallback block only when this close to the saved line. */
+	private static readonly LINE_MATCH_SLACK = 3;
 
 	constructor(plugin: ReadingViewEnhancer) {
 		this.plugin = plugin;
@@ -66,13 +90,15 @@ export default class ReadingPositionManager {
 			this.plugin.app.workspace.on("layout-change", () => {
 				this.attachScrollListener();
 				this.refreshProgressForActiveFile();
-				this.maybeRestoreAfterModeChange();
+				// Do NOT restore here — layout-change is very noisy and caused jumps.
 			}),
 		);
 		this.plugin.registerEvent(
 			this.plugin.app.workspace.on("active-leaf-change", () => {
+				void this.flushPendingFrontmatter("leaf-change");
 				this.attachScrollListener();
 				this.refreshProgressForActiveFile();
+				this.maybeRestoreAfterModeChange();
 			}),
 		);
 		this.plugin.registerEvent(
@@ -80,6 +106,9 @@ export default class ReadingPositionManager {
 				this.refreshProgressForFile(file);
 			}),
 		);
+		this.plugin.register(() => {
+			void this.flushPendingFrontmatter("unload");
+		});
 	}
 
 	onBlockSelected(
@@ -114,13 +143,48 @@ export default class ReadingPositionManager {
 	resetReadingSession(): void {
 		this.sessionFilePath = null;
 		this.lastRestoredModeKey = null;
+		this.stopSettleGuard();
 		this.cancelPendingSave();
+	}
+
+	getSessionFilePath(): string | null {
+		return this.sessionFilePath;
+	}
+
+	clearUserInteraction(filePath: string): void {
+		this.userInteractedPaths.delete(filePath);
+	}
+
+	onUserInteraction(filePath: string): void {
+		if (!filePath) return;
+		this.userInteractedPaths.add(filePath);
+		this.cancelRestoreForFile(filePath);
+	}
+
+	private cancelRestoreForFile(filePath: string): void {
+		if (!this.isRestorePendingForPath(filePath)) return;
+		this.clearRestorePending();
 	}
 
 	/** Quiet restore: one delayed attempt, few quiet retries. No polling loop. */
 	scheduleRestore(filePath: string): void {
 		if (!this.plugin.settings.rememberReadingPosition) return;
 		if (!this.hasSavedPosition(filePath)) return;
+
+		// Already restored this note+mode in the current session — don't yank again.
+		const view =
+			findMarkdownViewForFile(this.plugin, filePath) ?? getActiveView(this.plugin);
+		if (view?.file?.path === filePath) {
+			const modeKey = this.getModeKey(
+				filePath,
+				isReadingView(view) ? "preview" : "source",
+			);
+			if (this.lastRestoredModeKey === modeKey) return;
+		}
+
+		if (this.settle && this.settle.path !== filePath) {
+			this.stopSettleGuard();
+		}
 
 		this.pendingRestorePath = filePath;
 		this.restoreAttempts = 0;
@@ -200,6 +264,11 @@ export default class ReadingPositionManager {
 	private async runRestore(filePath: string): Promise<void> {
 		if (!this.isRestorePendingForPath(filePath)) return;
 		if (this.restoreInFlight) return;
+		// Vim j / manual scroll in edit mode — never fight the user with restore retries.
+		if (this.userInteractedPaths.has(filePath)) {
+			this.clearRestorePending();
+			return;
+		}
 
 		this.restoreInFlight = true;
 		try {
@@ -274,19 +343,35 @@ export default class ReadingPositionManager {
 		this.suppressDeselectUntil = Date.now() + 1200;
 		this.cancelPendingSave();
 
-		const scrollTop = resolvePreviewScrollTop(view, state);
-		applyPreviewScroll(view, scrollTop);
+		// Soft-scroll by ratio first (adapts to current height while blocks load).
+		const softTop = resolvePreviewScrollTop(view, {
+			scrollTop: 0,
+			scrollRatio: state.scrollRatio,
+		});
+		if (softTop > 0) applyPreviewScroll(view, softTop);
 		await waitMs(40);
 
 		const block = this.findBlockByLine(container, state.lineStart);
-		if (!block) {
+		if (state.lineStart > 0 && !block) {
+			// Target paragraph not rendered yet — keep retrying.
 			this.restoring = false;
 			return false;
 		}
 
-		// Highlight without forcing scroll or stealing focus loops.
-		selectionHandler.select(block, { center: false, preventScroll: true });
-		applyPreviewScroll(view, scrollTop);
+		if (block) {
+			// Highlight without stealing scroll; pin by ratio (stable) not by re-centering.
+			selectionHandler.select(block, { center: false, preventScroll: true });
+			const pinnedTop = resolvePreviewScrollTop(view, {
+				scrollTop: 0,
+				scrollRatio: state.scrollRatio,
+			});
+			applyPreviewScroll(view, pinnedTop > 0 ? pinnedTop : softTop);
+		} else if (state.scrollRatio > 0.001) {
+			applyPreviewScroll(view, softTop);
+		} else {
+			this.restoring = false;
+			return false;
+		}
 
 		this.completeRestore(file, state, "preview");
 		return true;
@@ -303,25 +388,54 @@ export default class ReadingPositionManager {
 		const lineCount = view.editor.lineCount();
 		if (lineCount <= 0) return false;
 
+		const currentLine = view.editor.getCursor().line;
+
+		if (this.userInteractedPaths.has(file.path)) {
+			this.completeRestoreFromEditor(view, file);
+			return true;
+		}
+
+		// User already read past the saved line (e.g. vim j) — do not scroll backward.
+		if (currentLine > state.lineStart + 3 && state.lineStart > 0) {
+			this.completeRestoreFromEditor(view, file);
+			return true;
+		}
+
+		// Corrupt state: progress mid-doc but lineStart stuck at 0 — trust the cursor.
+		if (state.lineStart <= 2 && state.progress > 0.08 && currentLine > 10) {
+			this.completeRestoreFromEditor(view, file);
+			return true;
+		}
+
 		this.restoring = true;
 		this.cancelPendingSave();
 
 		const line = Math.max(0, Math.min(state.lineStart, lineCount - 1));
 
-		// Prefer line-based restore so reading ↔ editing stay aligned.
+		if (this.userInteractedPaths.has(file.path)) {
+			this.restoring = false;
+			this.completeRestoreFromEditor(view, file);
+			return true;
+		}
+
 		if (state.lineStart > 0 || state.progress > 0.001) {
-			view.editor.setCursor({ line, ch: 0 });
-			view.editor.scrollIntoView(
-				{ from: { line, ch: 0 }, to: { line, ch: 0 } },
-				true,
-			);
-		} else {
+			if (currentLine <= line + 3) {
+				view.editor.setCursor({ line, ch: 0 });
+				view.editor.scrollIntoView(
+					{ from: { line, ch: 0 }, to: { line, ch: 0 } },
+					true,
+				);
+			}
+		} else if (state.scrollRatio > 0.001) {
 			const scrollTop = resolveSourceScrollTop(view, state);
-			if (scrollTop <= 0 && state.scrollRatio <= 0.001) {
+			if (scrollTop <= 0) {
 				this.restoring = false;
 				return false;
 			}
 			applySourceScroll(view, scrollTop);
+		} else {
+			this.restoring = false;
+			return false;
 		}
 
 		await waitMs(40);
@@ -329,19 +443,57 @@ export default class ReadingPositionManager {
 		return true;
 	}
 
+	private completeRestoreFromEditor(view: MarkdownView, file: TFile): void {
+		const state = this.buildStateFromEditor(view, file);
+		this.completeRestore(file, state, "source");
+	}
+
+	private buildStateFromEditor(view: MarkdownView, file: TFile): UserReadingState {
+		const lineStart = Math.max(0, view.editor.getCursor().line);
+		const totalLines = Math.max(1, view.editor.lineCount());
+		const scroller = getSourceViewScroller(view);
+		const scrollRatio = scroller ? getScrollRatio(scroller) : 0;
+		const scrollTop = scroller?.scrollTop ?? 0;
+		const previous = this.resolveReadingState(file);
+		const totalWords = this.totalWordsCache.get(file.path) ?? previous?.totalWords ?? 0;
+		const patch = buildPositionPatch(
+			lineStart,
+			scrollRatio,
+			totalLines,
+			totalWords,
+			scrollTop,
+		);
+
+		return {
+			progress: patch.progress ?? 0,
+			lineStart: patch.lineStart ?? lineStart,
+			scrollRatio: patch.scrollRatio ?? scrollRatio,
+			scrollTop: patch.scrollTop ?? scrollTop,
+			read: previous?.read ?? false,
+			finished: previous?.finished ?? null,
+			totalWords: patch.totalWords ?? totalWords,
+			wordsRead: patch.wordsRead ?? 0,
+			updatedAt: Date.now(),
+		};
+	}
+
 	private maybeRestoreAfterModeChange(): void {
 		const view = getActiveView(this.plugin);
 		const path = view?.file?.path;
 		if (!path || !this.hasSavedPosition(path)) return;
+
+		if (this.userInteractedPaths.has(path)) return;
 
 		const modeKey = this.getModeKey(
 			path,
 			isReadingView(view) ? "preview" : "source",
 		);
 		if (this.lastRestoredModeKey === modeKey) return;
-		if (this.hasActiveReadingSelection()) return;
 
-		// Already waiting for this note — nudge instead of resetting the timer.
+		// Only for real reading ↔ editing flips on the same note.
+		if (this.sessionFilePath !== path) return;
+		if (!this.lastRestoredModeKey?.startsWith(`${path}:`)) return;
+
 		if (this.isRestorePendingForPath(path)) {
 			this.nudgeRestoreIfPending(path);
 			return;
@@ -390,7 +542,7 @@ export default class ReadingPositionManager {
 		mode: "preview" | "source",
 	): void {
 		this.restoring = false;
-		this.suppressSaveUntil = Date.now() + 1000;
+		this.suppressSaveUntil = Date.now() + 800;
 		this.suppressDeselectUntil = Date.now() + 1200;
 		this.sessionFilePath = file.path;
 		this.lastRestoredModeKey = this.getModeKey(file.path, mode);
@@ -400,11 +552,31 @@ export default class ReadingPositionManager {
 			window.clearTimeout(this.restoreTimer);
 			this.restoreTimer = null;
 		}
+		this.memoryStates.set(file.path, { ...state, updatedAt: Date.now() });
+		this.progressHighWater.set(
+			file.path,
+			Math.max(this.progressHighWater.get(file.path) ?? 0, state.progress),
+		);
+		this.settle = {
+			path: file.path,
+			lineStart: state.lineStart,
+			scrollRatio: state.scrollRatio,
+			progress: state.progress,
+			mode,
+		};
+		this.settleUntil = Date.now() + 3000;
+		this.floorProgress = Math.max(0, state.progress);
+		this.floorUntil = Date.now() + 3000;
 		this.updateProgressFromState(file, state);
 
 		if (this.plugin.settings.showRestoreNotice) {
 			new Notice(t(this.plugin, "notice.restored"));
 		}
+	}
+
+	private stopSettleGuard(): void {
+		this.settle = null;
+		this.settleUntil = 0;
 	}
 
 	async saveNow() {
@@ -416,6 +588,8 @@ export default class ReadingPositionManager {
 		if (!view?.file || !container) return;
 
 		await this.persistPosition(view.file, container, block);
+		this.pendingFmPath = view.file.path;
+		await this.flushPendingFrontmatter("manual");
 		new Notice(t(this.plugin, "notice.saved"));
 	}
 
@@ -427,6 +601,7 @@ export default class ReadingPositionManager {
 			return;
 		}
 
+		this.clearUserInteraction(path);
 		this.pendingRestorePath = path;
 		this.restoreAttempts = 0;
 		const restored = await this.tryRestoreAsync(undefined, selectionHandler, path);
@@ -462,6 +637,7 @@ export default class ReadingPositionManager {
 
 	hasSavedPosition(filePath: string | undefined): boolean {
 		if (!filePath) return false;
+		if (this.memoryStates.has(filePath)) return true;
 		const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
 		if (!(file instanceof TFile)) {
 			return Boolean(this.plugin.readingPositions[filePath]);
@@ -474,7 +650,15 @@ export default class ReadingPositionManager {
 	}
 
 	private resolveReadingState(file: TFile): UserReadingState | null {
+		const memory = this.memoryStates.get(file.path);
 		const fromFrontmatter = readUserStateFromCache(this.plugin, file);
+
+		if (memory && fromFrontmatter) {
+			return memory.updatedAt >= fromFrontmatter.updatedAt
+				? memory
+				: fromFrontmatter;
+		}
+		if (memory) return memory;
 		if (fromFrontmatter) return fromFrontmatter;
 
 		const legacy = this.plugin.readingPositions[file.path];
@@ -564,13 +748,216 @@ export default class ReadingPositionManager {
 			scrollTop,
 		);
 
+		// Don't overwrite a real mid-article position with a jump-to-top glitch.
+		// Keep this check for the whole visit, not just a few seconds after open.
+		const previous = this.resolveReadingState(file);
+		const highWater = Math.max(
+			this.progressHighWater.get(file.path) ?? 0,
+			previous?.progress ?? 0,
+		);
+		const nextProgress = patch.progress ?? 0;
+		const looksLikeJumpToTop =
+			highWater > 0.08 &&
+			nextProgress < highWater - 0.05 &&
+			scrollRatio < 0.04 &&
+			lineStart <= 2;
+		if (looksLikeJumpToTop) {
+			return;
+		}
+
+		const merged: UserReadingState = {
+			progress: patch.progress ?? previous?.progress ?? 0,
+			lineStart: patch.lineStart ?? previous?.lineStart ?? 0,
+			scrollRatio: patch.scrollRatio ?? previous?.scrollRatio ?? 0,
+			scrollTop: patch.scrollTop ?? previous?.scrollTop ?? 0,
+			read: previous?.read ?? false,
+			finished: previous?.finished ?? null,
+			totalWords: patch.totalWords ?? previous?.totalWords ?? 0,
+			wordsRead: patch.wordsRead ?? previous?.wordsRead ?? 0,
+			updatedAt: Date.now(),
+		};
+		this.memoryStates.set(file.path, merged);
+		this.progressHighWater.set(
+			file.path,
+			Math.max(highWater, merged.progress),
+		);
+		this.pendingFmPath = file.path;
+		this.updateProgressFromState(file, merged);
+
+		// Durable backup that does NOT rewrite the note (no preview jump).
+		// Never persist a near-zero glitch over a real mid-article position.
+		if (merged.progress > 0.01 || merged.lineStart > 0 || merged.scrollRatio > 0.01) {
+			this.plugin.readingPositions[file.path] = {
+				lineStart: merged.lineStart,
+				scrollRatio: merged.scrollRatio,
+				updatedAt: merged.updatedAt,
+			};
+			this.schedulePluginDataSave();
+		}
+
+		if (this.settle?.path === file.path) {
+			this.settle.lineStart = merged.lineStart;
+			this.settle.scrollRatio = merged.scrollRatio;
+			this.settle.progress = merged.progress;
+		}
+	}
+
+	private schedulePluginDataSave(): void {
+		if (this.pluginDataSaveTimer) window.clearTimeout(this.pluginDataSaveTimer);
+		this.pluginDataSaveTimer = window.setTimeout(() => {
+			this.pluginDataSaveTimer = null;
+			void this.plugin.savePluginData();
+		}, 1000);
+	}
+
+	async flushPendingFrontmatter(
+		reason: "leaf-change" | "unload" | "manual" = "leaf-change",
+	): Promise<void> {
+		if (reason === "unload") {
+			const dirty = new Set<string>();
+			if (this.pendingFmPath) dirty.add(this.pendingFmPath);
+			for (const [path, state] of this.memoryStates) {
+				const fingerprint = this.fingerprintState(state);
+				if (this.lastFrontmatterFingerprint.get(path) !== fingerprint) {
+					dirty.add(path);
+				}
+			}
+			for (const path of dirty) {
+				await this.writeFrontmatterForPath(path, false);
+			}
+			return;
+		}
+
+		const path = this.pendingFmPath;
+		if (!path) return;
+
+		if (reason === "manual") {
+			await this.writeFrontmatterForPath(path, true);
+			return;
+		}
+
+		// leaf-change: ONLY write when this note is no longer open in any pane.
+		// Clicking the sidebar used to clear "active markdown view" while the note
+		// was still visible — we wrote frontmatter, Obsidian remounted preview,
+		// and the page jumped to the top. That was the mid-reading jump.
+		if (findMarkdownViewForFile(this.plugin, path)) {
+			return;
+		}
+
+		await this.writeFrontmatterForPath(path, false);
+	}
+
+	private fingerprintState(state: UserReadingState): string {
+		return `${state.lineStart}:${state.progress.toFixed(3)}:${state.scrollRatio.toFixed(3)}`;
+	}
+
+	private async writeFrontmatterForPath(
+		path: string,
+		reapplyIfActive: boolean,
+	): Promise<void> {
+		const file = this.plugin.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) {
+			if (this.pendingFmPath === path) this.pendingFmPath = null;
+			return;
+		}
+
+		const state = this.memoryStates.get(path);
+		if (!state) {
+			if (this.pendingFmPath === path) this.pendingFmPath = null;
+			return;
+		}
+
+		const fingerprint = this.fingerprintState(state);
+		if (this.lastFrontmatterFingerprint.get(path) === fingerprint) {
+			if (this.pendingFmPath === path) this.pendingFmPath = null;
+			return;
+		}
+
+		const patch: Partial<UserReadingState> = {
+			lineStart: state.lineStart,
+			scrollRatio: state.scrollRatio,
+			scrollTop: state.scrollTop,
+			progress: state.progress,
+			totalWords: state.totalWords,
+			wordsRead: state.wordsRead,
+			read: state.read,
+			finished: state.finished,
+		};
+
+		const activePath = getActiveView(this.plugin)?.file?.path;
+		const pinState = { ...state };
+		const view = findMarkdownViewForFile(this.plugin, path);
+		const mode: "preview" | "source" =
+			view && isReadingView(view) ? "preview" : "source";
+
 		await writeUserState(this.plugin, file, patch);
 
-		delete this.plugin.readingPositions[file.path];
+		this.lastFrontmatterFingerprint.set(path, fingerprint);
+		if (this.pendingFmPath === path) this.pendingFmPath = null;
+
+		delete this.plugin.readingPositions[path];
 		await this.plugin.savePluginData();
 
-		const state = readUserStateFromCache(this.plugin, file);
-		if (state) this.updateProgressFromState(file, state);
+		// Only re-pin when the user explicitly saved while still viewing.
+		if (reapplyIfActive && activePath === path) {
+			this.suppressSaveUntil = Date.now() + 1200;
+			this.floorProgress = Math.max(this.floorProgress, pinState.progress);
+			this.floorUntil = Date.now() + 2000;
+			await waitMs(80);
+			this.reapplyPinnedState(file, pinState, mode);
+		}
+	}
+
+	private reapplyPinnedState(
+		file: TFile,
+		state: UserReadingState,
+		mode: "preview" | "source",
+	): void {
+		const view = findMarkdownViewForFile(this.plugin, file.path);
+		if (!view) return;
+
+		this.restoring = true;
+		this.cancelPendingSave();
+		try {
+			if (mode === "preview" && isReadingView(view)) {
+				const container = getReadingViewContainer(view);
+				if (!container) return;
+				const block =
+					state.lineStart > 0
+						? this.findBlockByLine(container, state.lineStart)
+						: null;
+				if (block) {
+					scrollBlockToCenter(block, "auto");
+				} else {
+					const top = resolvePreviewScrollTop(view, {
+						scrollTop: 0,
+						scrollRatio: state.scrollRatio,
+					});
+					applyPreviewScroll(view, top);
+				}
+			} else if (mode === "source" && !isReadingView(view)) {
+				const lineCount = view.editor.lineCount();
+				if (lineCount <= 0) return;
+				const line = Math.max(0, Math.min(state.lineStart, lineCount - 1));
+				if (state.lineStart > 0 || state.progress > 0.001) {
+					view.editor.scrollIntoView(
+						{ from: { line, ch: 0 }, to: { line, ch: 0 } },
+						true,
+					);
+				} else if (state.scrollRatio > 0.001) {
+					applySourceScroll(
+						view,
+						resolveSourceScrollTop(view, {
+							scrollTop: 0,
+							scrollRatio: state.scrollRatio,
+						}),
+					);
+				}
+			}
+		} finally {
+			this.restoring = false;
+			this.suppressSaveUntil = Math.max(this.suppressSaveUntil, Date.now() + 800);
+		}
 	}
 
 	private async getTotalWords(file: TFile): Promise<number> {
@@ -596,7 +983,7 @@ export default class ReadingPositionManager {
 		container: HTMLElement,
 	) {
 		const totalWords = await this.getTotalWords(file);
-		const cachedState = readUserStateFromCache(this.plugin, file);
+		const cachedState = this.resolveReadingState(file);
 		const view = getActiveView(this.plugin);
 		const totalLines = view?.editor.lineCount() ?? 1;
 		const scrollable = getScrollableElement(container) ?? container;
@@ -660,7 +1047,7 @@ export default class ReadingPositionManager {
 
 	private refreshProgressForFile(file: TFile) {
 		this.totalWordsCache.delete(file.path);
-		const state = readUserStateFromCache(this.plugin, file);
+		const state = this.resolveReadingState(file);
 		if (state) {
 			this.updateProgressFromState(file, state);
 			return;
@@ -699,18 +1086,32 @@ export default class ReadingPositionManager {
 		container: HTMLElement,
 		lineStart: number,
 	): HTMLElement | null {
+		if (lineStart < 0) return null;
+
 		const blocks = container.querySelectorAll<HTMLElement>(
 			`[${BLOCK_ATTR}=true]`,
 		);
 
 		let fallback: HTMLElement | null = null;
+		let fallbackLine = -1;
 		for (const block of Array.from(blocks)) {
 			const blockLine = this.getBlockLineStart(block);
 			if (blockLine === lineStart) return block;
-			if (blockLine >= 0 && blockLine <= lineStart) fallback = block;
+			if (blockLine >= 0 && blockLine <= lineStart && blockLine > fallbackLine) {
+				fallback = block;
+				fallbackLine = blockLine;
+			}
 		}
 
-		return fallback;
+		// Far fallback means the real paragraph is not rendered yet — keep waiting.
+		if (
+			fallback &&
+			lineStart - fallbackLine <= ReadingPositionManager.LINE_MATCH_SLACK
+		) {
+			return fallback;
+		}
+
+		return null;
 	}
 
 	private getBlockLineStart(block: HTMLElement | null): number {
@@ -730,18 +1131,26 @@ export default class ReadingPositionManager {
 
 		this.boundContainer = container;
 		this.scrollListener = () => {
+			const activeView = getActiveView(this.plugin);
+			const activeContainer = getScrollContainer(activeView);
+			if (!activeView?.file || activeContainer !== container) return;
+
+			if (isEditingView(activeView)) {
+				this.onUserInteraction(activeView.file.path);
+			}
+
 			if (this.shouldSuppressSave()) return;
 
 			if (!this.plugin.settings.rememberReadingPosition) {
 				const block =
-					isReadingView(view)
+					isReadingView(activeView)
 						? this.plugin.blockSelector.selectionHandler.selectedBlock
 						: null;
 				this.updateProgressUi(block, container);
 				return;
 			}
 
-			const block = isReadingView(view)
+			const block = isReadingView(activeView)
 				? this.plugin.blockSelector.selectionHandler.selectedBlock
 				: null;
 			this.queueSave(container, block);
@@ -750,14 +1159,32 @@ export default class ReadingPositionManager {
 		container.addEventListener("scroll", this.scrollListener, {
 			passive: true,
 		});
+
+		if (view && isEditingView(view)) {
+			this.editorKeyListener = () => {
+				const activeView = getActiveView(this.plugin);
+				if (activeView?.file && isEditingView(activeView)) {
+					this.onUserInteraction(activeView.file.path);
+				}
+			};
+			container.addEventListener("keydown", this.editorKeyListener, true);
+		}
 	}
 
 	private detachScrollListener() {
 		if (this.boundContainer && this.scrollListener) {
 			this.boundContainer.removeEventListener("scroll", this.scrollListener);
 		}
+		if (this.boundContainer && this.editorKeyListener) {
+			this.boundContainer.removeEventListener(
+				"keydown",
+				this.editorKeyListener,
+				true,
+			);
+		}
 		this.boundContainer = null;
 		this.scrollListener = null;
+		this.editorKeyListener = null;
 	}
 
 	private resolveLineStart(
@@ -768,6 +1195,11 @@ export default class ReadingPositionManager {
 		const blockLineStart = this.getBlockLineStart(block);
 		if (blockLineStart >= 0) return blockLineStart;
 
+		// Edit / vim mode: cursor line is authoritative — scrollRatio on cm-scroller lies.
+		if (view && isEditingView(view)) {
+			return Math.max(0, view.editor.getCursor().line);
+		}
+
 		const totalLines = Math.max(1, view?.editor.lineCount() ?? 1);
 		return Math.min(
 			totalLines - 1,
@@ -776,10 +1208,13 @@ export default class ReadingPositionManager {
 	}
 }
 
-export function scrollBlockToCenter(block: HTMLElement): void {
+export function scrollBlockToCenter(
+	block: HTMLElement,
+	behavior: ScrollBehavior = "smooth",
+): void {
 	const scrollable = getScrollableParent(block);
 	if (!scrollable) {
-		block.scrollIntoView({ block: "center", behavior: "smooth" });
+		block.scrollIntoView({ block: "center", behavior });
 		return;
 	}
 
@@ -789,7 +1224,7 @@ export function scrollBlockToCenter(block: HTMLElement): void {
 	const viewportCenter = scrollableRect.top + scrollableRect.height / 2;
 	scrollable.scrollBy({
 		top: blockCenter - viewportCenter,
-		behavior: "smooth",
+		behavior,
 	});
 }
 

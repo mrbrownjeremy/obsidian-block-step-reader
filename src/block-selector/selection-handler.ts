@@ -72,11 +72,8 @@ export default class SelectionHandler {
 			this.selectedBlock.removeClass(SELECTED_BLOCK);
 		}
 
-		if (options?.preventScroll) {
-			block.focus({ preventScroll: true });
-		} else {
-			block.focus();
-		}
+		// Always prevent focus-driven scrolling; centering is handled separately.
+		block.focus({ preventScroll: true });
 		block.addClass(SELECTED_BLOCK);
 		this.selectedBlock = block;
 

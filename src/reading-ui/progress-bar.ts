@@ -90,6 +90,7 @@ export default class ReadingProgressBar {
 
 		this.detach();
 		this.boundHost = container;
+		this.boundHost.addClass("bsr-has-progress-bar");
 		this.ensureBar();
 	}
 
@@ -104,6 +105,7 @@ export default class ReadingProgressBar {
 	}
 
 	private detach() {
+		this.boundHost?.removeClass("bsr-has-progress-bar");
 		this.barEl?.remove();
 		this.barEl = null;
 		this.fillEl = null;

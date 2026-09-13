@@ -1,6 +1,6 @@
 import { Command } from "obsidian";
 import ReadingViewEnhancer from "src/main";
-import * as commands from "./commands";
+import { COMMAND_FACTORIES } from "./commands";
 
 export interface RveCommand {
 	(plugin: ReadingViewEnhancer): Command;
@@ -18,8 +18,8 @@ export default class Commands {
 	}
 
 	register() {
-		Object.values(commands)
-			.map((revCommand: RveCommand) => revCommand(this.plugin))
-			.forEach((command) => this.plugin.addCommand(command));
+		COMMAND_FACTORIES.map((revCommand) => revCommand(this.plugin)).forEach(
+			(command) => this.plugin.addCommand(command),
+		);
 	}
 }

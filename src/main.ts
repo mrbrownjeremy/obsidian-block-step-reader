@@ -1,5 +1,4 @@
 import { Plugin } from "obsidian";
-import { t } from "./i18n";
 import {
 	applyBlockColorCss,
 	applyReadingFeatures,
@@ -34,13 +33,10 @@ export default class ReadingViewEnhancer extends Plugin {
 		new Commands(this).register();
 
 		this.addSettingTab(new RveSettingTab(this));
-
-		console.log(t(this, "plugin.loaded"));
 	}
 
 	onunload(): void {
 		cleanupReadingFeatures();
-		console.log(t(this, "plugin.unloaded"));
 	}
 
 	async loadSettings() {
