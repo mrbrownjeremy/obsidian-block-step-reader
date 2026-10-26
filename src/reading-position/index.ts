@@ -111,15 +111,7 @@ export default class ReadingPositionManager {
 		});
 	}
 
-	onBlockSelected(
-		block: HTMLElement,
-		container: HTMLElement,
-		options?: { center?: boolean },
-	) {
-		if (options?.center && this.plugin.settings.autoCenterBlock) {
-			scrollBlockToCenter(block);
-		}
-
+	onBlockSelected(block: HTMLElement, container: HTMLElement) {
 		const view = getActiveView(this.plugin);
 		if (view?.file) {
 			this.sessionFilePath = view.file.path;
@@ -360,12 +352,14 @@ export default class ReadingPositionManager {
 
 		if (block) {
 			// Highlight without stealing scroll; pin by ratio (stable) not by re-centering.
-			selectionHandler.select(block, { center: false, preventScroll: true });
+			selectionHandler.select(block, { preventScroll: true });
 			const pinnedTop = resolvePreviewScrollTop(view, {
 				scrollTop: 0,
 				scrollRatio: state.scrollRatio,
 			});
 			applyPreviewScroll(view, pinnedTop > 0 ? pinnedTop : softTop);
+			// Then put the paragraph exactly where keyboard focus would put it.
+			selectionHandler.scrollToFocus(block, true);
 		} else if (state.scrollRatio > 0.001) {
 			applyPreviewScroll(view, softTop);
 		} else {
@@ -609,6 +603,7 @@ export default class ReadingPositionManager {
 	}
 
 	async markCurrentAsRead() {
+		if (!this.requireFrontmatterWrites()) return;
 		const view = getActiveView(this.plugin);
 		const file = view?.file;
 		if (!file) return;
@@ -620,6 +615,7 @@ export default class ReadingPositionManager {
 	}
 
 	async markCurrentAsUnread() {
+		if (!this.requireFrontmatterWrites()) return;
 		const view = getActiveView(this.plugin);
 		const file = view?.file;
 		if (!file) return;
@@ -627,6 +623,15 @@ export default class ReadingPositionManager {
 		await markAsUnread(this.plugin, file);
 		this.refreshProgressForFile(file);
 		new Notice(t(this.plugin, "notice.markedUnread"));
+	}
+
+	/** Read status lives in frontmatter; tell the user when that is switched off. */
+	private requireFrontmatterWrites(): boolean {
+		if (this.plugin.settings.writeProgressToFrontmatter) return true;
+		new Notice(
+			"Turn on “Save progress to note frontmatter” in the plugin settings to mark notes as read.",
+		);
+		return false;
 	}
 
 	clearAll() {
@@ -639,9 +644,8 @@ export default class ReadingPositionManager {
 		if (!filePath) return false;
 		if (this.memoryStates.has(filePath)) return true;
 		const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-		if (!(file instanceof TFile)) {
-			return Boolean(this.plugin.readingPositions[filePath]);
-		}
+		if (this.plugin.readingPositions[filePath]) return true;
+		if (!(file instanceof TFile)) return false;
 		return Boolean(readUserStateFromCache(this.plugin, file));
 	}
 
@@ -813,6 +817,11 @@ export default class ReadingPositionManager {
 	async flushPendingFrontmatter(
 		reason: "leaf-change" | "unload" | "manual" = "leaf-change",
 	): Promise<void> {
+		// Notes stay untouched unless the user opted in; positions live in plugin data.
+		if (!this.plugin.settings.writeProgressToFrontmatter) {
+			this.pendingFmPath = null;
+			return;
+		}
 		if (reason === "unload") {
 			const dirty = new Set<string>();
 			if (this.pendingFmPath) dirty.add(this.pendingFmPath);
@@ -927,7 +936,7 @@ export default class ReadingPositionManager {
 						? this.findBlockByLine(container, state.lineStart)
 						: null;
 				if (block) {
-					scrollBlockToCenter(block, "auto");
+					this.plugin.blockSelector.selectionHandler.scrollToFocus(block, true);
 				} else {
 					const top = resolvePreviewScrollTop(view, {
 						scrollTop: 0,
@@ -1061,7 +1070,13 @@ export default class ReadingPositionManager {
 	}
 
 	private async maybeAutoMarkRead(block: HTMLElement, container: HTMLElement) {
-		if (!this.plugin.settings.autoMarkReadAtEnd || this.restoring) return;
+		if (
+			!this.plugin.settings.writeProgressToFrontmatter ||
+			!this.plugin.settings.autoMarkReadAtEnd ||
+			this.restoring
+		) {
+			return;
+		}
 
 		const view = getActiveView(this.plugin);
 		const file = view?.file;
@@ -1208,39 +1223,16 @@ export default class ReadingPositionManager {
 	}
 }
 
-export function scrollBlockToCenter(
-	block: HTMLElement,
-	behavior: ScrollBehavior = "smooth",
-): void {
-	const scrollable = getScrollableParent(block);
-	if (!scrollable) {
-		block.scrollIntoView({ block: "center", behavior });
-		return;
-	}
-
-	const blockRect = block.getBoundingClientRect();
-	const scrollableRect = scrollable.getBoundingClientRect();
-	const blockCenter = blockRect.top + blockRect.height / 2;
-	const viewportCenter = scrollableRect.top + scrollableRect.height / 2;
-	scrollable.scrollBy({
-		top: blockCenter - viewportCenter,
-		behavior,
-	});
-}
-
-function getScrollableParent(node: HTMLElement): HTMLElement | null {
-	let current: HTMLElement | null = node;
-	while (current) {
-		if (current.scrollHeight > current.clientHeight) return current;
-		current = current.parentElement;
-	}
-	return null;
-}
-
 export function getScrollableElement(
 	container: HTMLElement,
 ): HTMLElement | null {
 	if (container.scrollHeight > container.clientHeight) return container;
+
+	// Reading view: the scroller is inside `.markdown-reading-view`.
+	const inner = container.querySelector(".markdown-preview-view");
+	if (inner instanceof HTMLElement && inner.scrollHeight > inner.clientHeight) {
+		return inner;
+	}
 
 	let node: HTMLElement | null = container.parentElement;
 	while (node) {

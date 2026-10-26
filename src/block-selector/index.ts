@@ -1,8 +1,20 @@
-import { Platform, TFile, type MarkdownPostProcessorContext } from "obsidian";
+import {
+	MarkdownView,
+	Platform,
+	TFile,
+	type MarkdownPostProcessorContext,
+} from "obsidian";
 
 import ReadingViewEnhancer from "src/main";
 import SelectionHandler from "./selection-handler";
-import { BLOCKS, BLOCK_ATTR, BLOCK_SELECTOR, FRONTMATTER } from "../constants";
+import {
+	BLOCKS,
+	BLOCK_ATTR,
+	BLOCK_SELECTOR,
+	FRONTMATTER,
+	PARAGRAPH_ATTR,
+	SELECTED_BLOCK,
+} from "../constants";
 import { getActiveView } from "src/utils";
 
 export default class BlockSelector {
@@ -74,6 +86,17 @@ export default class BlockSelector {
 
 	activate(): void {
 		this.plugin.registerMarkdownPostProcessor(this.blockifyProcessor);
+		this.plugin.app.workspace.onLayoutReady(() => this.initializeOpenContainers());
+		this.plugin.registerDomEvent(
+			window.document,
+			"keydown",
+			this.selectionHandler.onDocumentKeyDown,
+		);
+		this.plugin.registerEvent(
+			this.plugin.app.workspace.on("layout-change", () =>
+				this.initializeOpenContainers(),
+			),
+		);
 		this.plugin.registerEvent(
 			this.plugin.app.workspace.on(
 				"active-leaf-change",
@@ -83,6 +106,16 @@ export default class BlockSelector {
 		this.plugin.registerEvent(
 			this.plugin.app.workspace.on("file-open", this.onFileOpen),
 		);
+		// Leave open notes as we found them when the plugin is disabled.
+		this.plugin.register(() => {
+			this.selectionHandler.deselect();
+			window.activeDocument
+				.querySelectorAll(`.${SELECTED_BLOCK}`)
+				.forEach((el) => el.removeClass(SELECTED_BLOCK));
+			window.activeDocument
+				.querySelectorAll(`.${BLOCK_SELECTOR}`)
+				.forEach((el) => el.removeClass(BLOCK_SELECTOR));
+		});
 	}
 
 	autoSelectTopBlock(): void {
@@ -110,19 +143,11 @@ export default class BlockSelector {
 		element: HTMLElement,
 		context: MarkdownPostProcessorContext,
 	): void {
-		if (!this.plugin.settings.enableBlockSelector) return;
+		if (!this.isEnabledOnThisDevice()) return;
 
-		if (
-			(Platform.isMobile || Platform.isMobileApp) &&
-			this.plugin.settings.disableBlockSelectorOnMobile
-		) {
-			return;
-		}
-
-		const container = this.getPostProcessorContainer(element);
-		if (container && this.isContainerNotInitialized(container)) {
-			this.initializeContainer(container);
-		}
+		// The section is usually not attached to the page yet while it is
+		// post-processed, so look the reading view up from the workspace.
+		this.initializeOpenContainers();
 
 		this.elementsToBlocks(element, context);
 
@@ -131,9 +156,26 @@ export default class BlockSelector {
 		}
 	}
 
-	private getPostProcessorContainer(element: HTMLElement): HTMLElement | null {
-		const container = element.closest(".markdown-reading-view");
-		return container?.instanceOf(HTMLElement) ? container : null;
+	/**
+	 * Attach listeners to every open Reading view that does not have them yet.
+	 */
+	initializeOpenContainers(): void {
+		if (!this.isEnabledOnThisDevice()) return;
+		this.plugin.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
+			if (!(leaf.view instanceof MarkdownView)) return;
+			const container = leaf.view.previewMode.containerEl;
+			if (this.isContainerNotInitialized(container)) {
+				this.initializeContainer(container);
+			}
+		});
+	}
+
+	private isEnabledOnThisDevice(): boolean {
+		if (!this.plugin.settings.enableBlockSelector) return false;
+		return !(
+			(Platform.isMobile || Platform.isMobileApp) &&
+			this.plugin.settings.disableBlockSelectorOnMobile
+		);
 	}
 
 	private isContainerNotInitialized(container: HTMLElement): boolean {
@@ -143,27 +185,12 @@ export default class BlockSelector {
 	private initializeContainer(container: HTMLElement): void {
 		container.addClass(BLOCK_SELECTOR);
 
-		container.addEventListener(
-			"mousedown",
-			this.selectionHandler.onMouseTouchStart,
-		);
-		container.addEventListener(
-			"touchstart",
-			this.selectionHandler.onMouseTouchStart,
-		);
-		container.addEventListener(
-			"mouseup",
-			this.selectionHandler.onMouseTouchEnd,
-		);
-		container.addEventListener(
-			"touchend",
-			this.selectionHandler.onMouseTouchEnd,
-		);
-		container.addEventListener(
-			"focusout",
-			this.selectionHandler.onContainerFocusOut,
-		);
-		container.addEventListener("keydown", this.selectionHandler.onKeyDown);
+		const { selectionHandler } = this;
+		this.plugin.registerDomEvent(container, "mousedown", selectionHandler.onMouseTouchStart);
+		this.plugin.registerDomEvent(container, "touchstart", selectionHandler.onMouseTouchStart, { passive: true });
+		this.plugin.registerDomEvent(container, "mouseup", selectionHandler.onMouseTouchEnd);
+		this.plugin.registerDomEvent(container, "touchend", selectionHandler.onMouseTouchEnd);
+		this.plugin.registerDomEvent(container, "keydown", selectionHandler.onKeyDown);
 	}
 
 	private elementsToBlocks(
@@ -175,6 +202,7 @@ export default class BlockSelector {
 		elements.forEach((el) => {
 			if (el.hasClass(FRONTMATTER)) return;
 			el.setAttribute(BLOCK_ATTR, "true");
+			if (isProseUnit(el)) el.setAttribute(PARAGRAPH_ATTR, "true");
 			el.setAttribute("tabindex", "-1");
 			if (section?.lineStart != null && section?.lineEnd != null) {
 				el.setAttribute("data-rve-line-start", section.lineStart.toString());
@@ -182,4 +210,19 @@ export default class BlockSelector {
 			}
 		});
 	}
+}
+
+/**
+ * Paragraph navigation stops on prose: paragraphs (including those inside
+ * list items, quotes and callouts) and list items that have no paragraph of
+ * their own. Headings, tables, code and media are skipped.
+ */
+function isProseUnit(el: Element): boolean {
+	if (el.tagName === "P") {
+		return Boolean(el.textContent?.trim()) || el.querySelector("img, .internal-embed") != null;
+	}
+	if (el.tagName === "LI") {
+		return !Array.from(el.children).some((child) => child.tagName === "P");
+	}
+	return false;
 }

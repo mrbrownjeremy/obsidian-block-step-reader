@@ -6,6 +6,17 @@ export function getReadingViewContainer(activeView: MarkdownView | null) {
 	return activeView.previewMode.containerEl;
 }
 
+/**
+ * The element that actually scrolls in Reading view. It sits inside
+ * `.markdown-reading-view`, not around it.
+ */
+export function getPreviewScroller(activeView: MarkdownView | null) {
+	if (activeView == null) return null;
+	const container = activeView.previewMode.containerEl;
+	const scroller = container.querySelector(".markdown-preview-view");
+	return scroller?.instanceOf(HTMLElement) ? scroller : container;
+}
+
 export function getSourceViewContainer(activeView: MarkdownView | null) {
 	if (activeView == null) return null;
 	const container = activeView.containerEl.querySelector(
@@ -45,7 +56,7 @@ export function getProgressBarContainer(activeView: MarkdownView | null) {
 export function getScrollContainer(activeView: MarkdownView | null) {
 	if (activeView == null) return null;
 	return isReadingView(activeView)
-		? getReadingViewContainer(activeView)
+		? getPreviewScroller(activeView)
 		: getSourceViewScroller(activeView);
 }
 
@@ -83,7 +94,9 @@ export function findMarkdownLeafForLibraryOpen(
 }
 
 export function applyPreviewScroll(view: MarkdownView, scrollTop: number): void {
-	view.previewMode.applyScroll(Math.max(0, scrollTop));
+	// previewMode.applyScroll() takes a line number, not pixels.
+	const scroller = getPreviewScroller(view);
+	if (scroller) scroller.scrollTop = Math.max(0, scrollTop);
 }
 
 export function applySourceScroll(view: MarkdownView, scrollTop: number): void {
@@ -115,27 +128,13 @@ export function resolvePreviewScrollTop(
 ): number {
 	// Prefer ratio: absolute scrollTop is wrong while images/lazy blocks still loading.
 	if (state.scrollRatio > 0.001) {
-		const container = getReadingViewContainer(view);
-		if (container) {
-			const scrollable =
-				container.scrollHeight > container.clientHeight
-					? container
-					: (() => {
-							let node: HTMLElement | null = container.parentElement;
-							while (node) {
-								if (node.scrollHeight > node.clientHeight) return node;
-								node = node.parentElement;
-							}
-							return null;
-					  })();
-
-			if (scrollable) {
-				const maxScroll = Math.max(
-					0,
-					scrollable.scrollHeight - scrollable.clientHeight,
-				);
-				if (maxScroll > 0) return state.scrollRatio * maxScroll;
-			}
+		const scrollable = getPreviewScroller(view);
+		if (scrollable) {
+			const maxScroll = Math.max(
+				0,
+				scrollable.scrollHeight - scrollable.clientHeight,
+			);
+			if (maxScroll > 0) return state.scrollRatio * maxScroll;
 		}
 	}
 

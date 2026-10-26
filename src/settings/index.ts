@@ -1,12 +1,9 @@
-import { PluginSettingTab } from "obsidian";
+import { PluginSettingTab, type SettingDefinitionItem } from "obsidian";
 import ReadingViewEnhancer from "../main";
-import {
-	buildSettingDefinitions,
-	renderSettingsTab,
-	type SettingDefinitionItem,
-} from "./definitions";
+import { buildSettingDefinitions, onSettingChanged } from "./definitions";
 import type { LocaleSetting } from "../i18n";
 import type { LibraryFilter, LibrarySort } from "../reading-library/types";
+import type { NavigationUnit, ScrollAlignment } from "../block-selector/selection-util";
 
 export interface RveSettings {
 	blockColor: {
@@ -24,14 +21,26 @@ export interface RveSettings {
 	prevBlockKeys: string;
 	toggleCollapseKeys: string;
 	deselectKeys: string;
+	navigationUnit: NavigationUnit;
+	highlightFocused: boolean;
+	dimUnfocused: boolean;
+	/** Opacity of everything except the focused paragraph, 0–100. */
+	unfocusedOpacity: number;
+	autoScrollOnFocus: boolean;
+	scrollAlignment: ScrollAlignment;
+	/** Gap between the focused paragraph and the top of the pane, in px. */
+	topMargin: number;
+	smoothScrolling: boolean;
+	/** Remember where you were in each note, in this plugin's own data. */
 	rememberReadingPosition: boolean;
+	/** Also write progress and read status into note frontmatter. */
+	writeProgressToFrontmatter: boolean;
 	showRestoreNotice: boolean;
 	readingPositionSaveDelayMs: number;
 	readingPositionRestoreDelayMs: number;
 	userId: string;
 	showReadingProgressBar: boolean;
 	showReadingStats: boolean;
-	autoCenterBlock: boolean;
 	wordsPerMinute: number;
 	autoMarkReadAtEnd: boolean;
 	locale: LocaleSetting;
@@ -57,14 +66,22 @@ export const DEFAULT_SETTINGS: RveSettings = {
 	prevBlockKeys: "ArrowUp KeyK",
 	toggleCollapseKeys: "ArrowLeft ArrowRight KeyH KeyL",
 	deselectKeys: "Escape",
+	navigationUnit: "paragraphs",
+	highlightFocused: true,
+	dimUnfocused: true,
+	unfocusedOpacity: 25,
+	autoScrollOnFocus: true,
+	scrollAlignment: "top",
+	topMargin: 40,
+	smoothScrolling: true,
 	rememberReadingPosition: true,
+	writeProgressToFrontmatter: false,
 	showRestoreNotice: false,
 	readingPositionSaveDelayMs: 2000,
 	readingPositionRestoreDelayMs: 300,
 	userId: "default",
 	showReadingProgressBar: true,
 	showReadingStats: true,
-	autoCenterBlock: true,
 	wordsPerMinute: 300,
 	autoMarkReadAtEnd: false,
 	locale: "auto",
@@ -77,11 +94,8 @@ export const DEFAULT_SETTINGS: RveSettings = {
 // ===================================================================
 
 /**
- * Settings tab.
- * In this tab, you can change settings.
- *
- * - Block color
- * - Enable/Disable Block Selector
+ * Settings tab, rendered from declarative definitions (Obsidian 1.13+),
+ * so every setting is searchable from the settings search box.
  */
 export class RveSettingTab extends PluginSettingTab {
 	plugin: ReadingViewEnhancer;
@@ -92,13 +106,20 @@ export class RveSettingTab extends PluginSettingTab {
 	}
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
-		return buildSettingDefinitions(this.plugin);
+		return buildSettingDefinitions(this.plugin, this);
+	}
+
+	getControlValue(key: string): unknown {
+		return (this.plugin.settings as unknown as Record<string, unknown>)[key];
 	}
 
 	/**
-	 * Displays settings tab.
+	 * Settings share data.json with saved reading positions, so always save
+	 * through the plugin rather than the default (which would drop them).
 	 */
-	display() {
-		renderSettingsTab(this.containerEl, this.plugin);
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+		await this.plugin.saveSettings();
+		onSettingChanged(this.plugin, this, key);
 	}
 }

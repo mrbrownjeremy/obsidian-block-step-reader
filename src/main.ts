@@ -20,7 +20,7 @@ export default class ReadingViewEnhancer extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		this.app.workspace.onLayoutReady(() => this.applySettingsToStyles());
+		this.app.workspace.onLayoutReady(() => this.applyStyles());
 
 		this.blockSelector = new BlockSelector(this);
 		this.blockSelector.activate();
@@ -46,6 +46,11 @@ export default class ReadingViewEnhancer extends Plugin {
 		this.readingPositions = data?.readingPositions ?? {};
 		const { readingPositions: _readingPositions, ...settingsData } = data ?? {};
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, settingsData);
+		this.settings.blockColor = Object.assign(
+			{},
+			DEFAULT_SETTINGS.blockColor,
+			settingsData.blockColor,
+		);
 	}
 
 	async saveSettings() {
@@ -59,32 +64,9 @@ export default class ReadingViewEnhancer extends Plugin {
 		});
 	}
 
-	private applySettingsToStyles() {
-		this.applyBlockColor();
-		this.applyReadingFeatureStyles();
-	}
-
-	applyBlockColor(_isImmediate = false) {
+	/** Push settings that are pure CSS (colors, dimming, layout tweaks) to the page. */
+	applyStyles() {
 		applyBlockColorCss(this.settings.blockColor);
-	}
-
-	applyAlwaysOnCollapse(_isImmediate = false) {
-		this.applyReadingFeatureStyles();
-	}
-
-	applyCollapseIndicatorOnTheRightSide(_isImmediate = false) {
-		this.applyReadingFeatureStyles();
-	}
-
-	applyAlignCheckboxToIndentationGuide(_isImmediate = false) {
-		this.applyReadingFeatureStyles();
-	}
-
-	applyScrollableCode(_isImmediate = false) {
-		this.applyReadingFeatureStyles();
-	}
-
-	private applyReadingFeatureStyles() {
 		applyReadingFeatures(this.settings);
 	}
 }

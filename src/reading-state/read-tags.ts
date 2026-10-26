@@ -42,7 +42,7 @@ export async function syncReadTagsForFile(
 	file: TFile,
 	read: boolean,
 ): Promise<void> {
-	if (!plugin.settings.syncReadTags) return;
+	if (!plugin.settings.writeProgressToFrontmatter || !plugin.settings.syncReadTags) return;
 
 	const userId = getUserId(plugin);
 	await plugin.app.fileManager.processFrontMatter(file, (rawFrontmatter) => {
@@ -55,7 +55,7 @@ export async function syncReadTagsForFile(
 export async function syncAllReadTags(
 	plugin: ReadingViewEnhancer,
 ): Promise<number> {
-	if (!plugin.settings.syncReadTags) return 0;
+	if (!plugin.settings.writeProgressToFrontmatter || !plugin.settings.syncReadTags) return 0;
 
 	const userId = getUserId(plugin);
 	let updated = 0;

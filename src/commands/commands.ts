@@ -49,6 +49,42 @@ export const selectTopBlockInTheView: RveCommand = (
 	},
 });
 
+const focusCommand = (
+	id: string,
+	name: string,
+	run: (plugin: ReadingViewEnhancer, container: HTMLElement) => void,
+): RveCommand => (plugin: ReadingViewEnhancer) => ({
+	id,
+	name,
+	checkCallback: (checking: boolean): boolean => {
+		const activeView = getActiveView(plugin);
+		if (!isReadingView(activeView)) return false;
+		if (isNotEnabled(plugin) || isMobileAndDisabled(plugin)) return false;
+		const container = getReadingViewContainer(activeView);
+		if (!container) return false;
+		if (!checking) run(plugin, container);
+		return true;
+	},
+});
+
+export const focusNextParagraph = focusCommand(
+	"focus-next-paragraph",
+	"Focus next paragraph",
+	(plugin, container) => void plugin.blockSelector.selectionHandler.step(1, container),
+);
+
+export const focusPreviousParagraph = focusCommand(
+	"focus-previous-paragraph",
+	"Focus previous paragraph",
+	(plugin, container) => void plugin.blockSelector.selectionHandler.step(-1, container),
+);
+
+export const clearParagraphFocus = focusCommand(
+	"clear-paragraph-focus",
+	"Clear paragraph focus",
+	(plugin) => plugin.blockSelector.selectionHandler.deselect(),
+);
+
 export const saveReadingPosition: RveCommand = (plugin: ReadingViewEnhancer) => ({
 	id: "save-reading-position",
 	name: t(plugin, "cmd.savePosition"),
@@ -170,6 +206,9 @@ const isMobileAndDisabled = (plugin: ReadingViewEnhancer) => {
 export const COMMAND_FACTORIES: RveCommand[] = [
 	rerenderAllReadingViews,
 	selectTopBlockInTheView,
+	focusNextParagraph,
+	focusPreviousParagraph,
+	clearParagraphFocus,
 	saveReadingPosition,
 	restoreReadingPosition,
 	clearReadingPositions,

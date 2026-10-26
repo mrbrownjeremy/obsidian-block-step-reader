@@ -3,6 +3,9 @@ const BODY_CLASSES = [
 	"bsr-collapse-right",
 	"bsr-align-checkbox",
 	"bsr-scrollable-code",
+	"bsr-focus-highlight",
+	"bsr-focus-dim",
+	"bsr-end-spacer",
 ] as const;
 
 function getBody(): HTMLElement {
@@ -35,6 +38,11 @@ export function applyReadingFeatures(settings: {
 	collapseIndicatorOnTheRightSide: boolean;
 	alignCheckboxToIndentationGuide: boolean;
 	scrollableCode: boolean;
+	highlightFocused: boolean;
+	dimUnfocused: boolean;
+	unfocusedOpacity: number;
+	autoScrollOnFocus: boolean;
+	scrollAlignment: string;
 }): void {
 	setBodyFeature(
 		"bsr-collapse-always-on",
@@ -49,12 +57,23 @@ export function applyReadingFeatures(settings: {
 		settings.alignCheckboxToIndentationGuide,
 	);
 	setBodyFeature("bsr-scrollable-code", settings.scrollableCode);
+	setBodyFeature("bsr-focus-highlight", settings.highlightFocused);
+	setBodyFeature("bsr-focus-dim", settings.dimUnfocused);
+	// Room after the last paragraph so it can still reach the top of the pane.
+	setBodyFeature(
+		"bsr-end-spacer",
+		settings.autoScrollOnFocus && settings.scrollAlignment === "top",
+	);
+	const opacity = Math.max(0, Math.min(100, settings.unfocusedOpacity)) / 100;
+	getBody().setCssProps({ "--bsr-unfocused-opacity": String(opacity) });
 }
 
 export function cleanupReadingFeatures(): void {
 	for (const className of BODY_CLASSES) {
 		getBody().removeClass(className);
 	}
+	getBody().style.removeProperty("--bsr-unfocused-opacity");
+	getBody().style.removeProperty("--bsr-block-color");
 }
 
 export function setProgressWidth(element: HTMLElement, progress: number): void {

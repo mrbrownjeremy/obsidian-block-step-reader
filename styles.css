@@ -1,18 +1,64 @@
+/* ---------- Paragraph focus ---------- */
+
 .rve-selected-block {
 	position: relative;
 	z-index: 0;
 }
 
-.rve-selected-block::before {
+.markdown-reading-view [data-rve-block="true"]:focus,
+.markdown-reading-view [data-rve-block="true"]:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+
+body.bsr-focus-highlight .markdown-reading-view .rve-selected-block::before {
 	content: "";
 	position: absolute;
 	z-index: -1;
-	top: 0;
-	left: 0;
-	width: 100%;
-	height: 100%;
+	top: -0.15em;
+	bottom: -0.15em;
+	left: -0.5em;
+	right: -0.5em;
+	border-radius: var(--radius-s, 4px);
 	pointer-events: none;
 	background-color: var(--bsr-block-color, rgba(139, 108, 239, 0.2));
+}
+
+/*
+ * Dimming. Only the note's own content is affected, never the rest of the
+ * Obsidian window. Two rules keep opacity from compounding on nested blocks:
+ * 1. every top-level section that does not hold the focused block is faded;
+ * 2. inside the focused section, only the outermost non-focused blocks are
+ *    faded (blocks inside an already faded block, or inside the focused
+ *    block itself, are left alone).
+ * Nothing is dimmed once the focused block leaves the DOM.
+ */
+body.bsr-focus-dim .markdown-reading-view .markdown-preview-sizer > *,
+body.bsr-focus-dim .markdown-reading-view [data-rve-block="true"] {
+	transition: opacity 160ms ease;
+}
+
+body.bsr-focus-dim .markdown-reading-view:has(.rve-selected-block) .markdown-preview-sizer > :not(.markdown-preview-pusher):not(:has(.rve-selected-block)),
+body.bsr-focus-dim .markdown-reading-view .markdown-preview-sizer > :has(.rve-selected-block) [data-rve-block="true"]:not(.rve-selected-block):not(:has(.rve-selected-block)):not(.rve-selected-block *):not(:is([data-rve-block="true"]:not(.rve-selected-block):not(:has(.rve-selected-block))) *) {
+	opacity: var(--bsr-unfocused-opacity, 0.25);
+}
+
+/* Room after the last paragraph so it can be scrolled to the top too. */
+body.bsr-end-spacer .markdown-reading-view .markdown-preview-sizer {
+	padding-bottom: 70vh !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	body.bsr-focus-dim .markdown-reading-view .markdown-preview-sizer > *,
+	body.bsr-focus-dim .markdown-reading-view [data-rve-block="true"] {
+		transition: none;
+	}
+}
+
+@media print {
+	.rve-selected-block::before {
+		display: none;
+	}
 }
 
 body.bsr-collapse-always-on .markdown-reading-view .markdown-preview-section .collapse-indicator {

@@ -1,11 +1,11 @@
 {
-	"id": "block-step-reader",
-	"name": "Block Step Reader",
-	"version": "0.5.15",
-	"minAppVersion": "1.8.0",
-	"description": "Reader-like step reading: block navigation, reading library, per-user progress in frontmatter, and multi-language UI.",
-	"author": "gorf",
-	"authorUrl": "https://github.com/gorf",
+	"id": "paragraph-step-reader",
+	"name": "Paragraph Step Reader",
+	"version": "0.6.0",
+	"minAppVersion": "1.13.0",
+	"description": "Step through a note one paragraph at a time in Reading view, with the focused paragraph at the top of the pane and the rest dimmed.",
+	"author": "Jeremy Brown (fork of Block Step Reader by gorf)",
+	"authorUrl": "https://github.com/mrbrownjeremy/obsidian-block-step-reader",
 	"fundingUrl": "https://ko-fi.com/bigmonk",
 	"isDesktopOnly": false
 }

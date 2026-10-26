@@ -41,6 +41,18 @@ export const BLOCK_SELECTOR = "rve-block-selector";
 export const BLOCK_ATTR = "data-rve-block";
 
 /**
+ * Attribute name for prose units used by paragraph navigation:
+ * paragraphs, plus list items that have no paragraph of their own.
+ */
+export const PARAGRAPH_ATTR = "data-rve-paragraph";
+
+/**
+ * Class on a scroller that gets extra space at the end, so the last
+ * paragraphs can still be scrolled to the top of the pane.
+ */
+export const END_SPACER = "bsr-end-spacer";
+
+/**
  * Class name for selected block
  */
 export const SELECTED_BLOCK = "rve-selected-block";

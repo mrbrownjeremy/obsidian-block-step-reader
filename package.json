@@ -1,7 +1,7 @@
 {
-	"name": "block-step-reader",
-	"version": "0.5.15",
-	"description": "Step through blocks in reading view, highlight the current block, and remember reading position.",
+	"name": "paragraph-step-reader",
+	"version": "0.6.0",
+	"description": "Step through a note one paragraph at a time in Reading view, with the focused paragraph at the top of the pane and the rest dimmed.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
@@ -19,7 +19,7 @@
 		"@typescript-eslint/eslint-plugin": "5.29.0",
 		"@typescript-eslint/parser": "5.29.0",
 		"esbuild": "0.17.3",
-		"obsidian": "^1.7.2",
+		"obsidian": "^1.14.4",
 		"tslib": "2.4.0",
 		"typescript": "4.7.4"
 	}

@@ -36,6 +36,7 @@ export async function writeUserState(
 	file: TFile,
 	patch: Partial<UserReadingState>,
 ): Promise<void> {
+	if (!plugin.settings.writeProgressToFrontmatter) return;
 	const userId = getUserId(plugin);
 
 	await plugin.app.fileManager.processFrontMatter(file, (rawFrontmatter) => {
